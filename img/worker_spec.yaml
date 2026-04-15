@@ -1,0 +1,21 @@
+spec:
+  containers:
+    - name: worker
+      image: &{ accname }.registry.snowflakecomputing.com/&{ dbsname }/&{ xmaname }/images/skeduler_worker:latest
+      env:
+        BATCH_ID: "{{batchid}}"
+        SKEDULER_DATABASE: "&{ dbsname }"
+        SKEDULER_SCHEMA: "&{ xmaname }"
+      resources:
+        requests:
+          cpu: "0.5"
+          memory: "512M"
+        limits:
+          cpu: "1"
+          memory: "1G"
+      volumeMounts:
+        - name: vol-app
+          mountPath: /opt/spcs/stage
+  volumes:
+    - name: vol-app
+      source: "@VOLUMES"
