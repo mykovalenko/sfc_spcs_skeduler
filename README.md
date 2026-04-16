@@ -150,10 +150,10 @@ CALL UPDATE_CONFIG('REQUESTS_PER_INSTANCE', '5');
 
 | Variable | Default | Description |
 |---|---|---|
-| `DBS_NAME` | `mk_labs` | Target Snowflake database |
+| `DBS_NAME` | `apps` | Target Snowflake database |
 | `XMA_NAME` | `skeduler` | Target Snowflake schema |
-| `CNX_NAME` | `mkazwe001` | Snowflake CLI connection name |
-| `ACC_NAME` | `sfseeurope-mkazwe001` | Snowflake account identifier |
+| `CNX_NAME` | `cxname` | Snowflake CLI connection name |
+| `ACC_NAME` | `orgname-accname` | Snowflake account identifier |
 | `IMG_NAME` | `skeduler_worker` | Docker image name |
 
 Override any variable at invocation:
@@ -188,13 +188,13 @@ make all DBS_NAME=my_db XMA_NAME=my_schema CNX_NAME=myconn ACC_NAME=myorg-myacco
 make all
 
 # 2. Enqueue some test requests
-snow sql -c mkazwe001 -q "CALL MK_LABS.SKEDULER.ENQUEUE_REQUEST('{\"task\": \"hello\"}', 5)"
+snow sql -c <connection_name> -q "CALL <DB>.<SCHEMA>.ENQUEUE_REQUEST('{\"task\": \"hello\"}', 5)"
 
 # 3. Trigger a batch manually (or wait for the 10-minute schedule)
-snow sql -c mkazwe001 -q "CALL MK_LABS.SKEDULER.ORCHESTRATE_BATCH()"
+snow sql -c <connection_name> -q "CALL <DB>.<SCHEMA>.ORCHESTRATE_BATCH()"
 
 # 4. Check results
-snow sql -c mkazwe001 -q "SELECT * FROM MK_LABS.SKEDULER.PROCESS_LOG ORDER BY STARTED_AT DESC LIMIT 10"
+snow sql -c <connection_name> -q "SELECT * FROM <DB>.<SCHEMA>.PROCESS_LOG ORDER BY STARTED_AT DESC LIMIT 10"
 ```
 
 ---
@@ -239,7 +239,7 @@ The monitoring dashboard is deployed as a Streamlit in Snowsight application. It
 
 Access it in Snowsight under **Streamlit Apps** or via:
 ```
-https://app.snowflake.com/<account>/#/streamlit-apps/<DB>.<SCHEMA>.{XMA_NAME}_MONITOR
+https://app.snowflake.com/<account>/#/streamlit-apps/<DB>.<SCHEMA>.<SCHEMA>_STAPP
 ```
 
 ---
