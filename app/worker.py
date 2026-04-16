@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import logging
 import snowflake.connector
 
@@ -73,11 +72,6 @@ def mark_processing(conn, request_id):
     )
 
 
-def process_request(request):
-    log.info("Processing request %s with payload: %s", request["request_id"], request["payload"])
-    time.sleep(5)
-    log.info("Finished processing request %s", request["request_id"])
-
 
 def mark_completed(conn, request_id, batch_id, instance_id):
     conn.cursor().execute(
@@ -149,7 +143,8 @@ def main():
     for request in requests:
         try:
             mark_processing(conn, request["request_id"])
-            process_request(request)
+            from handler import process_request
+            process_request(request, conn)
             mark_completed(conn, request["request_id"], batch_id, instance_id)
             log.info("Request %s completed successfully.", request["request_id"])
         except Exception as e:
