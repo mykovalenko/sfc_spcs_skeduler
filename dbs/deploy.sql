@@ -1,7 +1,8 @@
 SET TARGET_DATABASE = '&{ dbsname }';
 SET DEPLOY_SCHEMA   = '&{ xmaname }';
-SET POOL_NAME       = $DEPLOY_SCHEMA || '_POOL';
-SET STAPP_NAME      = $DEPLOY_SCHEMA || '_STAPP';
+SET POOL_NAME       = UPPER($DEPLOY_SCHEMA) || '_POOL';
+SET STAPP_NAME      = UPPER($DEPLOY_SCHEMA) || '_STAPP';
+SET STAPP_TITLE     = UPPER($DEPLOY_SCHEMA) || '-Admin';
 
 USE ROLE ACCOUNTADMIN;
 USE DATABASE IDENTIFIER($TARGET_DATABASE);
@@ -27,7 +28,7 @@ CREATE OR REPLACE STREAMLIT IDENTIFIER($STAPP_NAME)
     ROOT_LOCATION = '@STREAMLITS'
     MAIN_FILE = 'streamlit_app.py'
     QUERY_WAREHOUSE = 'COMPUTE_WH'
-    TITLE = '&{ xmaname } Admin'
+    TITLE = $STAPP_TITLE
     COMMENT = 'Queue processor monitoring and configuration dashboard';
 
 -- Resume task

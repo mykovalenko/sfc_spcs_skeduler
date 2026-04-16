@@ -1,8 +1,8 @@
 SET TARGET_DATABASE = '&{ dbsname }';
 SET DEPLOY_SCHEMA   = '&{ xmaname }';
 SET ACCOUNT_NAME    = '&{ accname }';
-SET POOL_NAME       = $DEPLOY_SCHEMA || '_POOL';
-SET IMAGE_REF       = $ACCOUNT_NAME || '.registry.snowflakecomputing.com/' || $TARGET_DATABASE || '/' || $DEPLOY_SCHEMA || '/images/&{ imgname }:latest';
+SET POOL_NAME       = UPPER($DEPLOY_SCHEMA) || '_POOL';
+SET IMAGE_REF       = LOWER($ACCOUNT_NAME || '.registry.snowflakecomputing.com/' || $TARGET_DATABASE || '/' || $DEPLOY_SCHEMA || '/images/&{ imgname }:latest');
 
 USE ROLE ACCOUNTADMIN;
 
@@ -71,7 +71,7 @@ MERGE INTO RUNNER_CONFIG t USING (
         ('JOB_TIMEOUT_SECS', '3600'),
         ('COMPUTE_POOL', $POOL_NAME),
         ('MAX_RETRIES', '3'),
-        ('IMAGE_REPO', LOWER($IMAGE_REF))
+        ('IMAGE_REPO', $IMAGE_REF)
     ) AS v(CONFIG_KEY, CONFIG_VALUE)
 ) s ON t.CONFIG_KEY = s.CONFIG_KEY
 WHEN NOT MATCHED THEN INSERT (CONFIG_KEY, CONFIG_VALUE) VALUES (s.CONFIG_KEY, s.CONFIG_VALUE);
