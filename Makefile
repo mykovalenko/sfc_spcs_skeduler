@@ -43,6 +43,7 @@ snow_setup:
 		-D "dbsname=$(DBS_NAME)" \
 		-D "xmaname=$(XMA_NAME)" \
 		-D "accname=$(ACC_NAME)" \
+		-D "imgname=$(IMG_NAME)" \
 		> log/setup_$(TMS_EXEC).log 2>&1
 	@echo "Setup complete. See log/setup_$(TMS_EXEC).log"
 
@@ -50,7 +51,7 @@ setup: snow_setup
 
 spec_render:
 	@mkdir -p .build
-	sed 's|&{ accname }|$(ACC_NAME)|g; s|&{ dbsname }|$(DBS_NAME)|g; s|&{ xmaname }|$(XMA_NAME)|g' \
+	sed 's|&{ accname }|$(ACC_NAME)|g; s|&{ dbsname }|$(DBS_NAME)|g; s|&{ xmaname }|$(XMA_NAME)|g; s|&{ imgname }|$(IMG_NAME)|g' \
 		img/worker_spec.yaml > .build/worker_spec.yaml
 
 app_pack:

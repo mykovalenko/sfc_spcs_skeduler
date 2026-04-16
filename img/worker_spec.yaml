@@ -1,7 +1,7 @@
 spec:
   containers:
     - name: worker
-      image: &{ accname }.registry.snowflakecomputing.com/&{ dbsname }/&{ xmaname }/images/skeduler_worker:latest
+      image: &{ accname }.registry.snowflakecomputing.com/&{ dbsname }/&{ xmaname }/images/&{ imgname }:latest
       env:
         BATCH_ID: "{{batchid}}"
         SKEDULER_DATABASE: "&{ dbsname }"

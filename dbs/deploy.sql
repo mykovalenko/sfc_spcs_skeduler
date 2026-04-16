@@ -1,5 +1,7 @@
 SET TARGET_DATABASE = '&{ dbsname }';
 SET DEPLOY_SCHEMA   = '&{ xmaname }';
+SET POOL_NAME       = $DEPLOY_SCHEMA || '_POOL';
+SET STAPP_NAME      = $DEPLOY_SCHEMA || '_STAPP';
 
 USE ROLE ACCOUNTADMIN;
 USE DATABASE IDENTIFIER($TARGET_DATABASE);
@@ -18,14 +20,14 @@ REMOVE @STREAMLITS PATTERN='.*py';
 PUT file://streamlit/streamlit_app.py @STREAMLITS AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 
 -- Resume compute pool
-ALTER COMPUTE POOL IF EXISTS &{ xmaname }_POOL RESUME IF SUSPENDED;
+ALTER COMPUTE POOL IF EXISTS IDENTIFIER($POOL_NAME) RESUME IF SUSPENDED;
 
 -- Recreate Streamlit app
-CREATE OR REPLACE STREAMLIT &{ xmaname }_MONITOR
+CREATE OR REPLACE STREAMLIT IDENTIFIER($STAPP_NAME)
     ROOT_LOCATION = '@STREAMLITS'
     MAIN_FILE = 'streamlit_app.py'
     QUERY_WAREHOUSE = 'COMPUTE_WH'
-    TITLE = '&{ xmaname } Monitor'
+    TITLE = '&{ xmaname } Admin'
     COMMENT = 'Queue processor monitoring and configuration dashboard';
 
 -- Resume task

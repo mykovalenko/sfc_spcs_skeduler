@@ -20,8 +20,8 @@ queue depth. Failed requests are automatically retried or moved to a dead-letter
                             ENQUEUE_REQUEST()
                                    |
                                    v
-+----------+   10 min    +-------------------+     EXECUTE JOB SERVICE     +------------------+
-|  RUNNER  +------------>| ORCHESTRATE_BATCH +-------------------------->|  SPCS Workers    |
++----------+   10 min    +-------------------+     EXECUTE JOB SERVICE    +------------------+
+|  RUNNER  +------------>| ORCHESTRATE_BATCH +--------------------------->|  SPCS Workers    |
 |  _TASK   |  schedule   |  (stored proc)    |     N replicas             |  (containers)    |
 +----------+             +---------+---------+                            +--------+---------+
                                    |                                               |
