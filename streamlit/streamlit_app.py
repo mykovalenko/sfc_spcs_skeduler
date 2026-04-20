@@ -26,8 +26,8 @@ def run_query(sql):
 
 st.title(":cyclone: SKEDULER")
 
-tab_dash, tab_queue, tab_log, tab_config, tab_actions = st.tabs(
-    ["Dashboard", "Queue", "Process Log", "Configuration", "Actions"]
+tab_dash, tab_queue, tab_config = st.tabs(
+    ["Dashboard", "Queue", "Configuration"]
 )
 
 with tab_dash:
@@ -82,10 +82,118 @@ with tab_dash:
         st.info("No task history found in the last 24 hours.")
 
 with tab_queue:
-    st.subheader("Request Queue")
+    pool_name = run_query(f"""
+        SELECT CONFIG_VALUE FROM {DB}.{XMA}.RUNNER_CONFIG WHERE CONFIG_KEY = 'COMPUTE_POOL'
+    """)
+    if not pool_name.empty:
+        import pandas as pd
+        p_name = pool_name["CONFIG_VALUE"].iloc[0]
+        pool_info = run_query(f"DESCRIBE COMPUTE POOL {p_name}")
+        if not pool_info.empty:
+            def pcol(name):
+                return [c for c in pool_info.columns if name in c.lower()][0]
+            active = int(pool_info[pcol("active_nodes")].iloc[0] or 0)
+            max_nodes = int(pool_info[pcol("max_nodes")].iloc[0])
+            state = pool_info[pcol("state")].iloc[0]
+            family = pool_info[pcol("instance_family")].iloc[0]
+            error_cols = [c for c in pool_info.columns if "error_code" in c.lower()]
+            error_code = pool_info[error_cols[0]].iloc[0] if error_cols else None
+            status_cols = [c for c in pool_info.columns if "status_message" in c.lower()]
+            status_msg = pool_info[status_cols[0]].iloc[0] if status_cols else None
+            resumed_cols = [c for c in pool_info.columns if "resumed" in c.lower()]
+            raw_resumed = pool_info[resumed_cols[0]].iloc[0] if resumed_cols else None
+            if raw_resumed and str(raw_resumed) not in ("None", ""):
+                resumed_at = pd.Timestamp(raw_resumed).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                resumed_at = "N/A"
 
-    col_filter, _ = st.columns([1, 3])
-    with col_filter:
+            cp_col, tc_col, ma_col = st.columns([4, 2, 2])
+            with cp_col:
+                st.subheader(f"Compute Pool ({p_name})")
+                st.markdown(f"**Status:** {state} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **Instance family:** {family} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **Last resumed:** {resumed_at}")
+                if error_code and str(error_code).strip():
+                    st.error(f"Error {error_code}: {status_msg or ''}")
+                pct = active / max_nodes if max_nodes > 0 else 0
+                st.progress(pct)
+                st.caption(f"{active} / {max_nodes} nodes")
+                if st.button("Refresh", key="refresh_pool"):
+                    st.experimental_rerun()
+            with tc_col:
+                st.subheader("Task Control")
+                tb1, tb2, tb3 = st.columns(3)
+                with tb1:
+                    if st.button("Suspend Task"):
+                        session.sql(f"ALTER TASK {DB}.{XMA}.RUNNER_TASK SUSPEND").collect()
+                        st.success("Task suspended.")
+                with tb2:
+                    if st.button("Resume Task"):
+                        session.sql(f"ALTER TASK {DB}.{XMA}.RUNNER_TASK RESUME").collect()
+                        st.success("Task resumed.")
+                with tb3:
+                    if st.button("Check Status"):
+                        ts_state = run_query(f"SHOW TASKS LIKE 'RUNNER_TASK' IN SCHEMA {DB}.{XMA}")
+                        if not ts_state.empty:
+                            state_col = [c for c in ts_state.columns if 'state' in c.lower()][0]
+                            task_state = ts_state[state_col].iloc[0]
+                            st.info(f"Task status: {task_state}")
+                            if task_state.lower() == 'started':
+                                next_run = run_query(f"""
+                                    SELECT SCHEDULED_TIME,
+                                           DATEDIFF('second', CURRENT_TIMESTAMP(), SCHEDULED_TIME) AS DDIFF
+                                    FROM TABLE({DB}.INFORMATION_SCHEMA.TASK_HISTORY(
+                                        TASK_NAME => 'RUNNER_TASK',
+                                        SCHEDULED_TIME_RANGE_START => CURRENT_TIMESTAMP(),
+                                        SCHEDULED_TIME_RANGE_END => DATEADD('minute', 15, CURRENT_TIMESTAMP())
+                                    ))
+                                    WHERE STATE = 'SCHEDULED'
+                                    ORDER BY SCHEDULED_TIME ASC
+                                    LIMIT 1
+                                """)
+                                if not next_run.empty:
+                                    total_secs = int(next_run["DDIFF"].iloc[0])
+                                    if total_secs > 0:
+                                        mins, secs = divmod(total_secs, 60)
+                                        st.metric("Next run in", f"{mins}m {secs}s")
+                                    else:
+                                        st.info("Task is running now or just completed.")
+                                else:
+                                    st.caption("No upcoming run found. Task may have just fired.")
+                        else:
+                            st.warning("Task not found.")
+                st.markdown("**Trigger Batch**")
+                st.caption("Manually trigger a processing cycle.")
+                if st.button("Run Batch Now", type="primary"):
+                    with st.spinner("Running orchestrator..."):
+                        result = run_query(f"CALL {DB}.{XMA}.ORCHESTRATE_BATCH()")
+                    st.success(result.iloc[0, 0])
+            with ma_col:
+                st.subheader("Enqueue Test Request")
+                test_payload = st.text_input("Payload", value='{"test": true}')
+                test_priority = st.slider("Priority", 0, 10, 5)
+                if st.button("Enqueue"):
+                    session.sql(
+                        f"CALL {DB}.{XMA}.ENQUEUE_REQUEST('{test_payload}', {test_priority})"
+                    ).collect()
+                    st.success("Request enqueued.")
+                    st.experimental_rerun()
+        else:
+            st.subheader("Compute Pool")
+            st.warning(f"Compute pool '{p_name}' not found.")
+
+    st.subheader("Request Queue")
+    rq_act, _, rq_filter = st.columns([1, 2, 1])
+    with rq_act:
+        st.caption("Reset DEAD_LETTER requests back to PENDING.")
+        if st.button("Requeue All Dead Letters"):
+            session.sql(f"""
+                UPDATE {DB}.{XMA}.REQUEST_QUEUE
+                SET STATUS = 'PENDING', ATTEMPT_COUNT = 0,
+                    INSTANCE_ID = NULL, CLAIMED_AT = NULL, ERROR_MESSAGE = NULL
+                WHERE STATUS = 'DEAD_LETTER'
+            """).collect()
+            st.success("Dead letters requeued.")
+            st.experimental_rerun()
+    with rq_filter:
         status_filter = st.multiselect(
             "Filter by status",
             ["PENDING", "ASSIGNED", "PROCESSING", "COMPLETED", "DEAD_LETTER"],
@@ -107,16 +215,35 @@ with tab_queue:
     else:
         st.info("Select at least one status to view queue entries.")
 
-with tab_log:
     st.subheader("Process Log")
-    log_data = run_query(f"""
-        SELECT BATCH_ID, REQUEST_ID, INSTANCE_ID, STATUS,
-               STARTED_AT, FINISHED_AT, ERROR_MESSAGE
-        FROM {DB}.{XMA}.PROCESS_LOG
-        ORDER BY STARTED_AT DESC
-        LIMIT 200
-    """)
-    st.dataframe(log_data, use_container_width=True)
+    pl_act, _, pl_filter = st.columns([1, 2, 1])
+    with pl_act:
+        st.caption("Delete all COMPLETED requests from the queue.")
+        if st.button("Purge Completed Requests", type="secondary"):
+            session.sql(f"DELETE FROM {DB}.{XMA}.REQUEST_QUEUE WHERE STATUS = 'COMPLETED'").collect()
+            st.success("Completed requests purged.")
+            st.experimental_rerun()
+    with pl_filter:
+        log_status_filter = st.multiselect(
+            "Filter by status",
+            ["COMPLETED", "FAILED", "PROCESSING"],
+            default=["COMPLETED", "FAILED", "PROCESSING"],
+            key="log_status_filter",
+        )
+
+    if log_status_filter:
+        log_placeholders = ", ".join([f"'{s}'" for s in log_status_filter])
+        log_data = run_query(f"""
+            SELECT BATCH_ID, REQUEST_ID, INSTANCE_ID, STATUS,
+                   STARTED_AT, FINISHED_AT, ERROR_MESSAGE
+            FROM {DB}.{XMA}.PROCESS_LOG
+            WHERE STATUS IN ({log_placeholders})
+            ORDER BY STARTED_AT DESC
+            LIMIT 200
+        """)
+        st.dataframe(log_data, use_container_width=True)
+    else:
+        st.info("Select at least one status to view log entries.")
 
 with tab_config:
     st.subheader("Scheduler Configuration")
@@ -129,23 +256,72 @@ with tab_config:
 
     config_map = dict(zip(config_data["CONFIG_KEY"], config_data["CONFIG_VALUE"])) if not config_data.empty else {}
 
+    families_df = run_query("SHOW COMPUTE POOL INSTANCE FAMILIES")
+    family_list = families_df.iloc[:, 0].tolist() if not families_df.empty else ["CPU_X64_S"]
+
+    images_df = run_query(f"SHOW IMAGES IN IMAGE REPOSITORY {DB}.{XMA}.IMAGES")
+    current_image_repo = config_map.get("IMAGE_REPO", "")
+    if not images_df.empty:
+        path_col = [c for c in images_df.columns if "image_path" in c.lower()]
+        if path_col:
+            acct_prefix = current_image_repo.split(".registry.snowflakecomputing.com/")[0] if ".registry.snowflakecomputing.com/" in current_image_repo else ""
+            image_list = [
+                acct_prefix + ".registry.snowflakecomputing.com/" + p if acct_prefix else p
+                for p in images_df[path_col[0]].tolist()
+            ]
+        else:
+            image_list = [current_image_repo] if current_image_repo else []
+    else:
+        image_list = [current_image_repo] if current_image_repo else []
+
+    pool_for_family = config_map.get("COMPUTE_POOL", "SKEDULER_POOL")
+    pool_desc = run_query(f"DESCRIBE COMPUTE POOL {pool_for_family}")
+    current_family = "CPU_X64_S"
+    if not pool_desc.empty:
+        fam_col = [c for c in pool_desc.columns if "instance_family" in c.lower()]
+        if fam_col:
+            current_family = pool_desc[fam_col[0]].iloc[0]
+
     with st.form("config_form"):
         st.markdown("**Edit configuration values:**")
 
-        new_rpi = st.number_input(
-            "Requests per instance",
-            min_value=1, max_value=100,
-            value=int(config_map.get("REQUESTS_PER_INSTANCE", 2)),
+        cp_col1, cp_col2, cp_col3 = st.columns([4, 1, 1])
+        with cp_col1:
+            new_pool = st.text_input(
+                "Compute pool",
+                value=config_map.get("COMPUTE_POOL", "SKEDULER_POOL"),
+            )
+        with cp_col2:
+            family_idx = family_list.index(current_family) if current_family in family_list else 0
+            new_family = st.selectbox(
+                "Instance family",
+                options=family_list,
+                index=family_idx,
+            )
+        with cp_col3:
+            st.markdown("")
+            st.markdown("")
+            alter_family = st.form_submit_button("Change Type")
+        image_idx = image_list.index(current_image_repo) if current_image_repo in image_list else 0
+        new_image = st.selectbox(
+            "Image",
+            options=image_list,
+            index=image_idx,
+        )
+        new_min = st.number_input(
+            "Min instances",
+            min_value=1, max_value=10,
+            value=int(config_map.get("MIN_INSTANCES", 1)),
         )
         new_max = st.number_input(
             "Max instances",
             min_value=1, max_value=50,
             value=int(config_map.get("MAX_INSTANCES", 10)),
         )
-        new_min = st.number_input(
-            "Min instances",
-            min_value=1, max_value=10,
-            value=int(config_map.get("MIN_INSTANCES", 1)),
+        new_rpi = st.number_input(
+            "Requests per instance",
+            min_value=1, max_value=100,
+            value=int(config_map.get("REQUESTS_PER_INSTANCE", 2)),
         )
         new_timeout = st.number_input(
             "Job timeout (seconds)",
@@ -157,16 +333,15 @@ with tab_config:
             min_value=0, max_value=20,
             value=int(config_map.get("MAX_RETRIES", 3)),
         )
-        new_pool = st.text_input(
-            "Compute pool",
-            value=config_map.get("COMPUTE_POOL", "SKEDULER_POOL"),
-        )
-        new_image = st.text_input(
-            "Image repo URL",
-            value=config_map.get("IMAGE_REPO", ""),
-        )
 
-        submitted = st.form_submit_button("Save Configuration")
+        submitted = st.form_submit_button("Save Configuration", type="primary")
+
+        if alter_family:
+            session.sql(
+                f"ALTER COMPUTE POOL {new_pool} SET INSTANCE_FAMILY = {new_family}"
+            ).collect()
+            st.success(f"Compute pool updated to {new_family}.")
+            st.experimental_rerun()
 
         if submitted:
             updates = {
@@ -179,74 +354,14 @@ with tab_config:
                 "IMAGE_REPO": new_image,
             }
             for key, val in updates.items():
-                session.sql(
-                    f"UPDATE {DB}.{XMA}.RUNNER_CONFIG SET CONFIG_VALUE = '{val}' WHERE CONFIG_KEY = '{key}'"
-                ).collect()
+                session.sql(f"""
+                    MERGE INTO {DB}.{XMA}.RUNNER_CONFIG t
+                    USING (SELECT '{key}' AS CONFIG_KEY, '{val}' AS CONFIG_VALUE) s
+                    ON t.CONFIG_KEY = s.CONFIG_KEY
+                    WHEN MATCHED THEN UPDATE SET CONFIG_VALUE = s.CONFIG_VALUE
+                    WHEN NOT MATCHED THEN INSERT (CONFIG_KEY, CONFIG_VALUE) VALUES (s.CONFIG_KEY, s.CONFIG_VALUE)
+                """).collect()
             st.success("Configuration saved.")
             st.experimental_rerun()
 
-with tab_actions:
-    st.subheader("Manual Actions")
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Trigger Batch**")
-        st.caption("Manually trigger a processing cycle (calls ORCHESTRATE_BATCH).")
-        if st.button("Run Batch Now", type="primary"):
-            with st.spinner("Running orchestrator..."):
-                result = run_query(f"CALL {DB}.{XMA}.ORCHESTRATE_BATCH()")
-            st.success(result.iloc[0, 0])
-
-    with col2:
-        st.markdown("**Enqueue Test Request**")
-        test_payload = st.text_input("Payload", value='{"test": true}')
-        test_priority = st.slider("Priority", 0, 10, 5)
-        if st.button("Enqueue"):
-            session.sql(
-                f"CALL {DB}.{XMA}.ENQUEUE_REQUEST('{test_payload}', {test_priority})"
-            ).collect()
-            st.success("Request enqueued.")
-            st.experimental_rerun()
-
-    st.divider()
-
-    st.markdown("**Task Control**")
-    tc1, tc2, tc3 = st.columns(3)
-    with tc1:
-        if st.button("Resume Task"):
-            session.sql(f"ALTER TASK {DB}.{XMA}.RUNNER_TASK RESUME").collect()
-            st.success("Task resumed.")
-    with tc2:
-        if st.button("Suspend Task"):
-            session.sql(f"ALTER TASK {DB}.{XMA}.RUNNER_TASK SUSPEND").collect()
-            st.success("Task suspended.")
-    with tc3:
-        if st.button("Check Task State"):
-            state = run_query(f"SHOW TASKS LIKE 'RUNNER_TASK' IN SCHEMA {DB}.{XMA}")
-            if not state.empty:
-                state_col = [c for c in state.columns if 'state' in c.lower()][0]
-                st.info(f"Task state: {state[state_col].iloc[0]}")
-
-    st.divider()
-
-    st.markdown("**Requeue Dead Letters**")
-    st.caption("Reset DEAD_LETTER requests back to PENDING for reprocessing.")
-    if st.button("Requeue All Dead Letters"):
-        session.sql(f"""
-            UPDATE {DB}.{XMA}.REQUEST_QUEUE
-            SET STATUS = 'PENDING', ATTEMPT_COUNT = 0,
-                INSTANCE_ID = NULL, CLAIMED_AT = NULL, ERROR_MESSAGE = NULL
-            WHERE STATUS = 'DEAD_LETTER'
-        """).collect()
-        st.success("Dead letters requeued.")
-        st.experimental_rerun()
-
-    st.divider()
-
-    st.markdown("**Purge Completed**")
-    st.caption("Delete all COMPLETED requests from the queue.")
-    if st.button("Purge Completed Requests", type="secondary"):
-        session.sql(f"DELETE FROM {DB}.{XMA}.REQUEST_QUEUE WHERE STATUS = 'COMPLETED'").collect()
-        st.success("Completed requests purged.")
-        st.experimental_rerun()
