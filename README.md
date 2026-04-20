@@ -232,10 +232,8 @@ make img_push snow_deploy
 The monitoring dashboard is deployed as a Streamlit in Snowsight application. It provides:
 
 - **Dashboard tab** — queue status metrics, recent batch activity, task execution history
-- **Queue tab** — browse and filter request queue entries
-- **Process Log tab** — audit trail of all processing outcomes
-- **Configuration tab** — edit scaling parameters, compute pool, image URL
-- **Actions tab** — manually trigger batches, enqueue test requests, control task state, requeue dead letters, purge completed requests
+- **Queue tab** — compute pool status and controls, task control (suspend/resume/trigger batch), enqueue test requests, request queue with filtering, process log with filtering, requeue dead letters, purge completed requests
+- **Configuration tab** — edit scaling parameters, compute pool, instance family, image selection
 
 Access it in Snowsight under **Streamlit Apps** or via:
 ```
