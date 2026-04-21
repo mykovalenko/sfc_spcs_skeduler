@@ -24,6 +24,24 @@ def run_query(sql):
     return session.sql(sql).to_pandas()
 
 
+st.markdown("""
+<style>
+span[data-baseweb="tag"] {
+    background-color: #2196F3 !important;
+}
+span[data-baseweb="tag"] span {
+    color: white !important;
+}
+span[data-baseweb="tag"] svg {
+    fill: white !important;
+}
+button[kind="secondary"] p, button[kind="primary"] p {
+    white-space: normal !important;
+    word-wrap: break-word !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title(":cyclone: SKEDULER")
 
 tab_dash, tab_queue, tab_config = st.tabs(
@@ -107,7 +125,7 @@ with tab_queue:
             else:
                 resumed_at = "N/A"
 
-            cp_col, tc_col, ma_col = st.columns([4, 2, 2])
+            cp_col, dm_col, tc_col, ma_col = st.columns([4, 2, 3, 3])
             with cp_col:
                 st.subheader(f"Compute Pool ({p_name})")
                 st.markdown(f"**Status:** {state} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **Instance family:** {family} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **Last resumed:** {resumed_at}")
@@ -180,11 +198,12 @@ with tab_queue:
             st.subheader("Compute Pool")
             st.warning(f"Compute pool '{p_name}' not found.")
 
+    st.divider()
     st.subheader("Request Queue")
     rq_act, _, rq_filter = st.columns([1, 2, 1])
     with rq_act:
         st.caption("Reset DEAD_LETTER requests back to PENDING.")
-        if st.button("Requeue All Dead Letters"):
+        if st.button("Requeue All Dead Letters", type="primary"):
             session.sql(f"""
                 UPDATE {DB}.{XMA}.REQUEST_QUEUE
                 SET STATUS = 'PENDING', ATTEMPT_COUNT = 0,
@@ -219,7 +238,7 @@ with tab_queue:
     pl_act, _, pl_filter = st.columns([1, 2, 1])
     with pl_act:
         st.caption("Delete all COMPLETED requests from the queue.")
-        if st.button("Purge Completed Requests", type="secondary"):
+        if st.button("Purge Completed Requests", type="primary"):
             session.sql(f"DELETE FROM {DB}.{XMA}.REQUEST_QUEUE WHERE STATUS = 'COMPLETED'").collect()
             st.success("Completed requests purged.")
             st.experimental_rerun()
